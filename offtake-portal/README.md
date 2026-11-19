@@ -56,6 +56,60 @@ Supabase Dashboard's **SQL Editor**:
 
    The `/admin/setup/` page explains this trusted bootstrap. The public API
    intentionally cannot promote an account to administrator.
+
+   To check why an existing account is not being recognized, run this query
+   in the **Supabase SQL Editor** (not cPanel phpMyAdmin) and replace the email:
+
+   ```sql
+   SELECT
+     u.id,
+     u.email,
+     (u.email_confirmed_at IS NOT NULL) AS email_confirmed,
+     CASE
+       WHEN a.id IS NOT NULL AND a.is_active THEN 'admin'
+       WHEN m.id IS NOT NULL AND m.is_active THEN 'manager'
+       WHEN a.id IS NOT NULL OR m.id IS NOT NULL THEN 'disabled'
+       ELSE 'no portal role'
+     END AS portal_role,
+     m.supplier_id,
+     s.name AS supplier_name
+   FROM auth.users AS u
+   LEFT JOIN public.offtake_v2_admins AS a ON a.id = u.id
+   LEFT JOIN public.offtake_v2_managers AS m ON m.id = u.id
+   LEFT JOIN public.offtake_v2_suppliers AS s ON s.id = m.supplier_id
+   WHERE lower(u.email) = lower('YOUR_LOGIN_EMAIL');
+   ```
+
+   If this returns an Auth user with `no portal role` and the account should
+   be a manager, create its profile with this idempotent repair query:
+
+   ```sql
+   INSERT INTO public.offtake_v2_managers (id, email, full_name, is_active)
+   SELECT
+     u.id,
+     u.email,
+     CASE
+       WHEN CHAR_LENGTH(BTRIM(COALESCE(u.raw_user_meta_data ->> 'full_name', ''))) >= 2
+         THEN LEFT(BTRIM(u.raw_user_meta_data ->> 'full_name'), 160)
+       WHEN CHAR_LENGTH(SPLIT_PART(u.email, '@', 1)) >= 2
+         THEN LEFT(SPLIT_PART(u.email, '@', 1), 160)
+       ELSE 'Manager'
+     END,
+     TRUE
+   FROM auth.users AS u
+   WHERE lower(u.email) = lower('YOUR_LOGIN_EMAIL')
+     AND NOT EXISTS (
+       SELECT 1 FROM public.offtake_v2_admins AS a WHERE a.id = u.id
+     )
+   ON CONFLICT (id) DO UPDATE
+     SET email = EXCLUDED.email,
+         is_active = TRUE,
+         updated_at = now();
+   ```
+
+   The password must still belong to that user in **Supabase Auth**. The
+   separate MySQL tables shown in phpMyAdmin store operational records only;
+   this portal does not use them to authenticate or store passwords.
 6. Managers register at `/register/` with their company name. The Auth trigger
    creates a dedicated supplier record for that manager and links the manager
    to it, so signup does not wait for admin assignment. When Supabase returns

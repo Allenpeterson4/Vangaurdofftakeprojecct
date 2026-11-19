@@ -9,6 +9,7 @@ import { PortalHeader } from '@/components/portal-header';
 import { LoginForm } from '@/components/auth-form';
 import { PortalApiError, apiRequest } from '@/lib/portal-api';
 import type { PortalUser } from '@/lib/auth';
+import { useHasHydrated } from '@/lib/use-hydrated';
 import { dateTime, money, statusLabel } from '@/lib/format';
 import type { Batch, WeeklySummary } from '@/lib/types';
 
@@ -35,6 +36,7 @@ export default function ManagerPage() {
   const [profile, setProfile] = useState<PortalUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [needsLogin, setNeedsLogin] = useState(true);
+  const hasMounted = useHasHydrated();
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -77,6 +79,18 @@ export default function ManagerPage() {
     return () => { active = false; };
   }, [refreshKey, router]);
 
+  if (hasMounted && loading && !dashboard) return (
+    <main className="grid min-h-screen place-items-center px-4" role="status" aria-live="polite">
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex items-center gap-3 text-sm text-[var(--muted)]">
+          <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--green)]" />
+          Loading company dashboard…
+        </div>
+        <p className="text-sm text-[var(--muted)]">Need to sign in? <Link href="/login/" className="font-semibold text-[var(--green)] underline">Go to manager sign in</Link></p>
+      </div>
+    </main>
+  );
+
   if (needsLogin) return (
     <>
       <PortalHeader name="Company manager" />
@@ -96,17 +110,6 @@ export default function ManagerPage() {
     </>
   );
 
-  if (loading && !dashboard) return (
-    <main className="grid min-h-screen place-items-center px-4" role="status" aria-live="polite">
-      <div className="flex flex-col items-center gap-3">
-        <div className="flex items-center gap-3 text-sm text-[var(--muted)]">
-          <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--green)]" />
-          Loading company dashboard…
-        </div>
-        <p className="text-sm text-[var(--muted)]">Need to sign in? <Link href="/login/" className="font-semibold text-[var(--green)] underline">Go to manager sign in</Link></p>
-      </div>
-    </main>
-  );
   if (error || !dashboard || !profile) return (
     <main className="mx-auto grid min-h-screen max-w-xl place-items-center px-4">
       <section className="surface w-full p-6 text-center">

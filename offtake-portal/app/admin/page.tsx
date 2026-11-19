@@ -9,6 +9,7 @@ import { PortalHeader } from '@/components/portal-header';
 import { LoginForm } from '@/components/auth-form';
 import { PortalApiError, apiRequest } from '@/lib/portal-api';
 import type { PortalUser } from '@/lib/auth';
+import { useHasHydrated } from '@/lib/use-hydrated';
 import { dateTime, money, statusLabel } from '@/lib/format';
 import type { AdminSettlement, Batch, ManagerProfile, Supplier } from '@/lib/types';
 
@@ -57,6 +58,7 @@ export default function AdminPage() {
   const [profile, setProfile] = useState<PortalUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [needsLogin, setNeedsLogin] = useState(true);
+  const hasMounted = useHasHydrated();
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -99,6 +101,17 @@ export default function AdminPage() {
     return () => { active = false; };
   }, [refreshKey, router]);
 
+  if (hasMounted && loading && !dashboard) return (
+    <main className="grid min-h-screen place-items-center px-4" role="status" aria-live="polite">
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex items-center gap-3 text-sm text-[var(--muted)]">
+          <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--green)]" />
+          Loading platform dashboard…
+        </div>
+      </div>
+    </main>
+  );
+
   if (needsLogin) return (
     <>
       <PortalHeader name="Platform administrator" />
@@ -120,16 +133,6 @@ export default function AdminPage() {
     </>
   );
 
-  if (loading) return (
-    <main className="grid min-h-screen place-items-center px-4" role="status" aria-live="polite">
-      <div className="flex flex-col items-center gap-3">
-        <div className="flex items-center gap-3 text-sm text-[var(--muted)]">
-          <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--green)]" />
-          Loading platform dashboard…
-        </div>
-      </div>
-    </main>
-  );
   if (error || !dashboard || !profile) return (
     <main className="mx-auto grid min-h-screen max-w-xl place-items-center px-4">
       <section className="surface w-full p-6 text-center">
