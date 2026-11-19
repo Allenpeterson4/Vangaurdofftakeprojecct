@@ -34,10 +34,9 @@ export default function LoginPage() {
         <section className="surface w-full max-w-md p-6 sm:p-8">
           <Link href="/" className="text-xs font-bold uppercase tracking-wider text-[var(--green)]">← Back to overview</Link>
           <h1 className="mt-5 text-2xl font-semibold tracking-tight">Sign in to your portal</h1>
-          <p className="mt-2 text-sm text-[var(--muted)]">Managers and platform administrators use the same sign-in page.</p>
+          <p className="mt-2 text-sm text-[var(--muted)]">Company managers sign in to their operations dashboard here.</p>
           {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
           <div className="mt-7"><LoginForm /></div>
-          <p className="mt-5 text-center text-sm text-[var(--muted)]">Platform administrator? <Link href="/admin-login/" className="font-semibold text-[var(--green)] underline">Admin sign in</Link></p>
         </section>
       </main>
     </>

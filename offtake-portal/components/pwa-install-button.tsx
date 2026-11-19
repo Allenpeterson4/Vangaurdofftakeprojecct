@@ -23,7 +23,7 @@ function isInstalled() {
     || ('standalone' in navigator && navigator.standalone === true);
 }
 
-export function PwaInstallButton() {
+export function PwaInstallButton({ placement = 'header' }: { placement?: 'header' | 'menu' }) {
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const installed = useSyncExternalStore(subscribeInstalled, isInstalled, () => false);
@@ -63,6 +63,10 @@ export function PwaInstallButton() {
 
   if (installed) return null;
 
+  const buttonClass = placement === 'menu'
+    ? 'flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--line)] px-3 py-3 text-sm font-bold text-[var(--green)] hover:bg-[var(--mint)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--green)]'
+    : 'inline-flex h-10 w-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-[var(--line)] px-2 py-2 text-sm font-bold text-[var(--green)] hover:bg-[var(--mint)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--green)] sm:h-auto sm:w-auto sm:px-3';
+
   return (
     <div className="relative">
       <button
@@ -70,13 +74,13 @@ export function PwaInstallButton() {
         onClick={() => void installApp()}
         aria-label="Download app"
         aria-expanded={helpOpen}
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-[var(--line)] px-2 py-2 text-sm font-bold text-[var(--green)] hover:bg-[var(--mint)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--green)] sm:h-auto sm:w-auto sm:px-3"
+        className={buttonClass}
       >
         <Download size={16} />
-        <span className="sr-only sm:not-sr-only">Download app</span>
+        <span className={placement === 'menu' ? '' : 'sr-only sm:not-sr-only'}>Download app</span>
       </button>
       {helpOpen && (
-        <div role="status" className="absolute right-0 top-full z-50 mt-2 w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-[var(--line)] bg-white p-4 text-xs leading-5 text-[var(--muted)] shadow-lg">
+        <div role="status" className={`absolute ${placement === 'menu' ? 'left-0' : 'right-0'} top-full z-50 mt-2 w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-[var(--line)] bg-white p-4 text-xs leading-5 text-[var(--muted)] shadow-lg`}>
           In your browser menu choose <strong className="text-[var(--ink)]">Install app</strong> or <strong className="text-[var(--ink)]">Add to Home Screen</strong>. On iPhone or iPad, open this page in Safari, tap Share, then choose Add to Home Screen.
         </div>
       )}

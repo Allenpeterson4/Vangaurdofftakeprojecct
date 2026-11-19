@@ -1,0 +1,9 @@
+/node_modules/
+/.next/
+/out/
+/dist/
+/api/vendor/
+/tsconfig.tsbuildinfo
+/api/config.php
+/.env*
+/supabase/.temp/

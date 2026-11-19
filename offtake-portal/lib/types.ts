@@ -1,4 +1,4 @@
-export type BatchStatus = 'pending' | 'in_transit' | 'completed' | 'disputed';
+export type BatchStatus = 'pending' | 'paid' | 'in_transit' | 'completed' | 'disputed';
 
 export interface Supplier {
   id: string;
@@ -11,6 +11,8 @@ export interface Supplier {
 export interface Batch {
   id: string;
   supplier_id: string;
+  accounting_model: 'legacy' | 'inventory';
+  product_name: string;
   unit_quantity: number;
   unit_cost_price: number;
   unit_selling_price: number;
@@ -18,6 +20,14 @@ export interface Batch {
   total_capital: number;
   total_revenue: number;
   net_investor_credit: number;
+  initial_purchase_amount: number;
+  sales_discount_percent: number;
+  wholesale_supply_price: number;
+  manager_allowance_percent: number;
+  discounted_revenue: number;
+  gross_profit: number;
+  manager_allowance_amount: number;
+  net_company_payout: number;
   destination_route: string;
   vehicle_reference: string;
   driver_name: string;
@@ -34,13 +44,16 @@ export interface ManagerProfile {
   full_name: string;
   role: 'admin' | 'manager';
   supplier_id: string | null;
+  supplier_ids: string[];
 }
 
 export interface WeeklySummary {
   week_start: string;
   completed_batches: number;
-  gross_sales_value: number;
-  net_credit_due: number;
+  total_invested_amount: number | string;
+  total_sales_revenue: number | string;
+  active_batches: number;
+  net_credit_due: number | string;
 }
 
 export interface AdminSettlement {
@@ -50,6 +63,10 @@ export interface AdminSettlement {
   completed_batches: number;
   deployed_capital: number;
   gross_sales_value: number;
+  gross_profit: number;
+  net_profit: number;
   fuel_allowance: number;
   net_investor_credit: number;
+  paid_amount: number;
+  pending_payout: number;
 }

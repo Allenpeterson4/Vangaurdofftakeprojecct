@@ -1,6 +1,6 @@
 export function money(value: number | string | null | undefined) {
   const amount = Number(value ?? 0);
-  const currency = process.env.NEXT_PUBLIC_CURRENCY || 'USD';
+  const currency = process.env.NEXT_PUBLIC_CURRENCY || 'NGN';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,

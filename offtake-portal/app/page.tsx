@@ -31,58 +31,58 @@ export default function HomePage() {
     <>
       <PortalHeader name="Vanguard Velocity Delivery" />
       <main>
-        <section id="home" className="relative isolate overflow-hidden bg-[#102c23] text-white">
-          <div aria-hidden="true" className="absolute inset-0 -z-10 opacity-30 [background-image:linear-gradient(120deg,transparent_30%,#58a881_30.1%,transparent_30.4%),linear-gradient(30deg,transparent_62%,#58a881_62.1%,transparent_62.4%)]" />
-          <div className="absolute -right-36 -top-32 -z-10 h-[34rem] w-[34rem] rounded-full border border-white/10" />
-          <div className="absolute -right-8 -top-8 -z-10 h-[26rem] w-[26rem] rounded-full border border-white/10" />
+        <section id="home" className="hero-section">
+          <div aria-hidden="true" className="hero-lines absolute inset-0 -z-10" />
+          <div aria-hidden="true" className="hero-orbit hero-orbit-outer absolute -right-36 -top-32 -z-10 h-[34rem] w-[34rem]" />
+          <div aria-hidden="true" className="hero-orbit hero-orbit-inner absolute -right-8 -top-8 -z-10 h-[26rem] w-[26rem]" />
           <div className="mx-auto grid max-w-7xl gap-12 px-4 py-20 sm:px-6 sm:py-28 lg:grid-cols-[1.08fr_.92fr] lg:items-center lg:px-8">
             <div>
-              <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-100/20 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-[.16em] text-emerald-100">
-                <span className="h-2 w-2 rounded-full bg-emerald-300" />
+              <p className="hero-pill mb-5 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[.16em]">
+                <span aria-hidden="true" className="hero-pill-dot h-2 w-2 rounded-full" />
                 Off-take partnerships · distribution · delivery
               </p>
               <h1 className="max-w-3xl text-4xl font-semibold leading-[1.08] tracking-tight sm:text-6xl">
-                Guaranteed daily off-take. <span className="text-emerald-300">A clearer path to market.</span>
+                Guaranteed daily off-take. <span className="hero-accent">A clearer path to market.</span>
               </h1>
-              <p className="mt-6 max-w-2xl text-base leading-7 text-emerald-50/75 sm:text-lg">
+              <p className="hero-copy mt-6 max-w-2xl text-base leading-7 sm:text-lg">
                 We connect manufacturers to committed purchasing and coordinated distribution—helping your business plan with greater confidence while we manage the movement of goods.
               </p>
               <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-                <Link href="/register/" className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-300 px-5 py-3.5 text-sm font-bold text-[#102c23] transition hover:bg-emerald-200">
-                  Partner with us <ArrowRight size={17} />
+                <Link href="/login/" className="hero-primary-link inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-sm font-bold">
+                  Portal login <ArrowRight size={17} />
                 </Link>
-                <Link href="/login/" className="inline-flex items-center justify-center rounded-xl border border-white/20 px-5 py-3.5 text-sm font-bold text-white transition hover:bg-white/5">
-                  Portal login
+                <Link href="/register/" className="hero-secondary-link inline-flex items-center justify-center rounded-xl px-5 py-3.5 text-sm font-bold">
+                  Partner registration
                 </Link>
               </div>
-              <p className="mt-4 text-xs text-emerald-100/60">Partner managers can register for portal access. Access is enabled after company assignment.</p>
+              <p className="hero-note mt-4 text-xs">Partner managers can register for portal access. Access is enabled after company assignment.</p>
             </div>
 
-            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[.06] p-5 shadow-2xl backdrop-blur sm:p-7">
-              <div className="flex items-start justify-between border-b border-white/10 pb-5">
+            <div className="hero-diagram-panel relative overflow-hidden rounded-3xl p-5 shadow-2xl backdrop-blur sm:p-7">
+              <div className="hero-diagram-heading flex items-start justify-between pb-5">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[.15em] text-emerald-100/60">From production floor to destination</p>
+                  <p className="hero-diagram-kicker text-xs font-semibold uppercase tracking-[.15em]">From production floor to destination</p>
                   <p className="mt-2 text-xl font-semibold">One connected supply chain</p>
                 </div>
-                <span className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-300/15 text-emerald-200"><Boxes size={22} /></span>
+                <span className="hero-diagram-mark grid h-11 w-11 place-items-center rounded-xl"><Boxes size={22} /></span>
               </div>
               <div className="relative mt-7 space-y-5">
-                <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-black/10 p-4">
-                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/10 text-emerald-200"><Factory size={21} /></span>
-                  <div><p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-100/55">Production partner</p><p className="mt-1 font-semibold">Your factory, focused on making</p></div>
+                <div className="hero-flow-card hero-flow-card-muted flex items-center gap-4 rounded-2xl p-4">
+                  <span className="hero-flow-icon hero-flow-icon-muted grid h-11 w-11 shrink-0 place-items-center rounded-xl"><Factory size={21} /></span>
+                  <div><p className="hero-flow-label text-[11px] font-semibold uppercase tracking-wider">Production partner</p><p className="mt-1 font-semibold">Your factory, focused on making</p></div>
                 </div>
-                <div className="ml-9 h-5 border-l border-dashed border-emerald-200/50" />
-                <div className="flex items-center gap-4 rounded-2xl border border-emerald-200/20 bg-emerald-200/10 p-4">
-                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-300/15 text-emerald-200"><Truck size={21} /></span>
-                  <div><p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-100/65">Coordinated dispatch</p><p className="mt-1 font-semibold">Loading, movement, and delivery</p></div>
+                <div aria-hidden="true" className="hero-flow-connector ml-9 h-5 border-l border-dashed" />
+                <div className="hero-flow-card hero-flow-card-highlight flex items-center gap-4 rounded-2xl p-4">
+                  <span className="hero-flow-icon hero-flow-icon-highlight grid h-11 w-11 shrink-0 place-items-center rounded-xl"><Truck size={21} /></span>
+                  <div><p className="hero-flow-label text-[11px] font-semibold uppercase tracking-wider">Coordinated dispatch</p><p className="mt-1 font-semibold">Loading, movement, and delivery</p></div>
                 </div>
-                <div className="ml-9 h-5 border-l border-dashed border-emerald-200/50" />
-                <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-black/10 p-4">
-                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/10 text-emerald-200"><CheckCircle2 size={21} /></span>
-                  <div><p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-100/55">A clear handoff</p><p className="mt-1 font-semibold">Track progress and reconcile</p></div>
+                <div aria-hidden="true" className="hero-flow-connector ml-9 h-5 border-l border-dashed" />
+                <div className="hero-flow-card hero-flow-card-muted hero-flow-card-complete flex items-center gap-4 rounded-2xl p-4">
+                  <span className="hero-flow-icon hero-flow-icon-muted grid h-11 w-11 shrink-0 place-items-center rounded-xl"><CheckCircle2 size={21} /></span>
+                  <div><p className="hero-flow-label text-[11px] font-semibold uppercase tracking-wider">A clear handoff</p><p className="mt-1 font-semibold">Track progress and reconcile</p></div>
                 </div>
               </div>
-              <p className="mt-6 flex items-center gap-2 text-xs text-emerald-100/60"><ArrowDownRight size={15} /> Built around your production rhythm</p>
+              <p className="hero-diagram-footer mt-6 flex items-center gap-2 text-xs"><ArrowDownRight size={15} /> Built around your production rhythm</p>
             </div>
           </div>
         </section>

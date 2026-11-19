@@ -3,7 +3,7 @@ import type { PortalUser } from '@/lib/auth';
 const API_TIMEOUT_MS = 15_000;
 
 export class PortalApiError extends Error {
-  constructor(message: string, public readonly status: number) {
+  constructor(message: string, public readonly status: number, public readonly redirectTo?: string) {
     super(message);
     this.name = 'PortalApiError';
   }
@@ -44,10 +44,17 @@ async function fetchPortalApi<T>(
 }
 
 async function readJson(response: Response): Promise<unknown> {
+  const contentType = response.headers.get('content-type') ?? '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    const message = response.status === 404
+      ? 'The portal API route was not found. Make sure the PHP API files are deployed under /api/.'
+      : `The portal API returned an unexpected response (HTTP ${response.status}). Check /api/health.php and the PHP error log.`;
+    throw new PortalApiError(message, response.status);
+  }
   try {
     return await response.json();
   } catch {
-    throw new PortalApiError('The server returned an invalid response.', response.status);
+    throw new PortalApiError(`The portal API returned invalid JSON (HTTP ${response.status}). Check /api/health.php.`, response.status);
   }
 }
 
@@ -84,11 +91,14 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   }, async (response) => ({ response, payload: await readJson(response) }));
   const { response, payload } = result;
   if (!response.ok) {
-    const message = typeof payload === 'object' && payload !== null && 'error' in payload
-      && typeof payload.error === 'string'
-      ? payload.error
+    const body = typeof payload === 'object' && payload !== null ? payload : null;
+    const message = body && 'error' in body && typeof body.error === 'string'
+      ? body.error
       : 'The request could not be completed.';
-    throw new PortalApiError(message, response.status);
+    const redirectTo = body && 'redirect_to' in body && typeof body.redirect_to === 'string'
+      ? body.redirect_to
+      : undefined;
+    throw new PortalApiError(message, response.status, redirectTo);
   }
   if (method !== 'GET' && method !== 'HEAD') csrfToken = null;
   return payload as T;

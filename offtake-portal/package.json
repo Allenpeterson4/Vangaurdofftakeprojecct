@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev-server.mjs",
     "build": "next build",
     "package:cpanel": "npm run build && bash scripts/package-cpanel.sh",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:auth": "php tests/auth-cookies.php"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

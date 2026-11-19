@@ -1,0 +1,16 @@
+DirectoryIndex index.html
+
+<FilesMatch "(?i)(^config(\.example)?\.php$|\.sql$|^\.env|\.pem$|\.key$)">
+  Require all denied
+</FilesMatch>
+
+<IfModule mod_mime.c>
+  AddType application/javascript .js
+  AddType text/css .css
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^admin/setup/?$ admin/setup.html [L]
+  RewriteRule ^(services|about|mission|login|register|admin-login|admin|manager)/?$ $1.html [L]
+</IfModule>

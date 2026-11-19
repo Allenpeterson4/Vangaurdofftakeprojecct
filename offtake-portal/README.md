@@ -1,136 +1,160 @@
 # Vanguard Offtake Portal
 
-An independent mobile-first portal for supplier-company onboarding, daily
-allocations, dispatch tracking, and weekly settlements. Its cPanel deployment
-uses a statically exported Next.js/React frontend and same-origin PHP/MySQL APIs;
-the production site does not require Node.js hosting or Supabase.
+Responsive operations portal for manager registration, supplier allocations,
+dispatch tracking, and weekly settlements. Next.js serves the interface; PHP
+calls Supabase Auth/PostgREST using the project URL and publishable (anon) key.
+Auth tokens use Secure, HttpOnly cookies scoped to the API, avoiding dependence
+on cPanel PHP session storage. The public key does not bypass Row Level Security
+or grant schema-editing privileges.
 
-## cPanel requirements
+## Supabase setup
 
-- Apache hosting with `.htaccess` and `mod_rewrite` enabled.
-- PHP 8.1+ with PDO, `pdo_mysql`, and cURL enabled (`mbstring` is recommended).
-- MySQL 8.0.16+ or compatible MariaDB with generated columns and CHECK constraints.
-- HTTPS enabled on the subdomain. HTTPS is required for PWA installation.
+The application no longer connects directly to PostgreSQL/MySQL and does not
+run database migrations from a local CLI. Apply the schema once using the
+Supabase Dashboard's **SQL Editor**:
 
-## Install on cPanel
+1. For local development, copy `api/config.example.php` to `api/config.php`,
+   or provide these values as process environment variables / in the ignored
+   root `.env.local`:
 
-1. Create a MySQL database and database user in cPanel, and grant the user
-   privileges on that database.
-2. Import [`database/offtake-portal.sql`](./database/offtake-portal.sql) in
-   phpMyAdmin. The schema uses `offtake_`-prefixed table names so it can also
-   share a database without colliding with the marketplace tables.
-3. In cPanel File Manager, copy `api/config.example.php`, name the copy
-   `config.php`, and edit it with the cPanel database host, port, name, username,
-   and password. Leave it inside the `api` directory; its `.htaccess` denies
-   direct web access. Do not upload a `.env` file: this PHP backend reads
-   `api/config.php`. The source `api/config.php` is excluded from Git and from
-   deployment ZIPs so database credentials are not accidentally published.
-4. Configure Telegram notifications in the private `api/config.php`:
-   create a bot with Telegram's `@BotFather`, add it to the preferred channel
-   as an administrator with permission to post, then set `telegram_bot_token`
-   and `telegram_chat_id` in the config. Use the channel's `@username` or
-   numeric chat ID. Never send or publish the bot token. Successful manager
-   registrations, sign-ins, and allocation status changes are queued and sent
-   to this channel. Delivery is attempted immediately; failed notifications
-   are recorded and logged without blocking sign-in or dashboard actions. The
-   persistent **Install app** button in the site header installs the PWA where
-   supported or shows device-specific add-to-home-screen instructions.
-5. If updating an existing database, import
-   [`database/migrations/20261114_telegram_notifications.sql`](./database/migrations/20261114_telegram_notifications.sql)
-   in phpMyAdmin to add the notification queue. New databases get this table
-   from the full schema. For an existing installation, also import
-   [`database/migrations/20261115_telegram_delivery_status.sql`](./database/migrations/20261115_telegram_delivery_status.sql)
-   so failed delivery attempts are recorded accurately. If an earlier portal
-   version had a scheduled Telegram worker, remove its old scheduled task and
-   delete `api/telegram-worker.php` if it is still on the server; this version
-   does not require background jobs.
-6. Point the subdomain's document root to an empty folder, then upload and
-   extract `dist/VVD-Offtake-Portal-FINAL.zip` into that folder. To update an
-   existing deployment, extract the new ZIP over the document root and choose
-   overwrite/replace for existing files. The archive intentionally does not
-   include `api/config.php`; keep that file in place. If using the generated
-   ZIP, the SQL file is included under `database/` but denied over HTTP; use
-   phpMyAdmin to import it.
-7. Visit the HTTPS subdomain and register the platform owner's account. Managers
-   and administrators can sign in through `/login/` or the dedicated
-   `/admin-login/` page; successful sign-in
-   routes administrators to `/admin/` and managers to `/manager/`. In
-   phpMyAdmin, promote that account to the first administrator, replacing the
-   email in this statement:
-
-   ```sql
-   UPDATE `offtake_users`
-   SET `role` = 'admin', `supplier_id` = NULL
-   WHERE `email` = 'owner@example.com' AND `role` = 'manager';
+   ```text
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-or-anon-key
    ```
 
-   Confirm one row was changed, then sign in again. The administrator can add
-   supplier companies and create allocations. Company managers register at
-   `/register`; assign them to a supplier in the admin dashboard before they
-   can see company data.
+   The PHP API reads the same URL/key. The deployment script writes only these
+   two public values to the ZIP's root `.env.local` and `api/config.php`; it
+   validates that the key is publishable or has the legacy `anon` role. Do not
+   use a service-role key or database password.
+2. Open `database/offtake-platform-v2.postgresql.sql` in the Supabase SQL
+   Editor and run it as a project administrator. It creates the Auth-linked
+   manager/admin profiles, operational tables, status auditing, payout RPC,
+   access policies, and signup triggers. The SQL is idempotent for a fresh
+   installation; it does not delete existing tables.
+3. Run
+   `database/migrations/20261118_manager_inventory_workspaces.postgresql.sql`
+   after the base schema, followed by
+   `database/migrations/20261118_manager_inventory_workspaces_fix.postgresql.sql`.
+   If the workspace/inventory migration was already applied, run only the
+   follow-up migration to correct the inventory payout calculation.
+4. Check `/api/health.php`. A healthy response reports seven checked tables.
+   If tables were just created and PostgREST reports them missing, reload the
+   schema cache from Supabase or wait briefly and retry.
+5. Create the first admin user in **Supabase Dashboard → Authentication →
+   Users**. The Auth signup trigger creates a manager profile for email users
+   by default. In SQL Editor, replace the placeholders below with that Auth
+   user's UUID, email, and name to grant admin access:
 
-The public site includes `/services/`, `/about/`, and `/mission/` pages. It is
-designed for its own subdomain document root. Do not mount it under a
-marketplace URL path. Keep `api/config.php` private and never publish database
-credentials. The package includes flat HTML fallbacks for the portal routes;
-Apache rewrites the route URLs to those files so they do not depend on
-directory-index behavior.
+   ```sql
+   BEGIN;
+   DELETE FROM public.offtake_v2_managers
+   WHERE id = 'AUTH-USER-UUID';
+   INSERT INTO public.offtake_v2_admins (id, email, full_name)
+   VALUES ('AUTH-USER-UUID', 'admin@example.com', 'Portal Administrator');
+   COMMIT;
+   ```
 
-## Build the cPanel ZIP
+   The `/admin/setup/` page explains this trusted bootstrap. The public API
+   intentionally cannot promote an account to administrator.
+6. Managers register at `/register/` with their company name. The Auth trigger
+   creates a dedicated supplier record for that manager and links the manager
+   to it, so signup does not wait for admin assignment. When Supabase returns
+   an Auth session, the app redirects straight to `/manager/`. If email
+   confirmation is enabled, Supabase requires confirmation before dashboard
+   access. The administrator signs in separately at `/admin/`; admins can
+   later assign one or more company workspaces. Managers can switch only
+   between workspaces explicitly assigned to them.
+7. Configure shipment alerts in private `api/config.php` or the server
+   environment. Set `ADMIN_ALERT_EMAIL`, `ALERT_FROM_EMAIL`,
+   `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID`. The PHP host must have its
+   mail transport configured for `mail()` to deliver email. `/api/health.php`
+   reports whether Telegram and email settings are present; it never exposes
+   the credentials.
 
-Requires Node.js/npm for the build and the `zip` and `unzip` command-line tools:
+The SQL is intended for a fresh Supabase schema. The separate
+`database/offtake-portal.sql` file is a MySQL 8.0.16+ reference schema matching
+the current operational table columns and financial formulas. It does not
+recreate Supabase Auth, triggers, RPCs, or row-level security, and this
+application does not connect to or use those MySQL tables. Running it creates
+a separate MySQL copy only; it does not configure or migrate the live portal.
+
+## Local development and deployment
+
+Requirements: Node.js/npm and PHP 8.1+ with the cURL extension.
+No PDO driver, Composer packages, database host, or database password is
+needed.
 
 ```sh
 npm install
+npm run dev
+```
+
+The development server serves Next.js and proxies `/api/*` to the local PHP
+server. If accessing it through a non-local forwarded origin, set `APP_ORIGIN`
+to that exact origin (scheme, host, and optional port). For production, build
+the static UI and deployment ZIP:
+
+```sh
 npm run typecheck
 npm run lint
+npm run test:auth
+php tests/money.php
 npm run package:cpanel
 ```
 
-The verified archive is created at
-[`dist/VVD-Offtake-Portal-FINAL.zip`](./dist/VVD-Offtake-Portal-FINAL.zip). It contains
-the static export, PHP APIs, protected SQL schema, Apache rules, and this
-deployment guide. It does not contain `node_modules`, build caches, or
-environment files. Do not upload the source workspace or its development
-dependencies to production. Compiled CSS and the Next.js JavaScript chunks
-referenced by each page are embedded into the exported HTML. This avoids
-depending on the host correctly serving separate CSS/JavaScript chunk requests.
+Upload `dist/VVD-Offtake-Portal-FINAL.zip` to the domain's document root and
+extract all files there, overwriting the existing deployment. Keep the
+`_next/static/chunks/` directory; it contains the JavaScript required for
+interactive controls, and `.htaccess` sets its JavaScript/CSS MIME types. The
+ZIP includes the public Supabase URL/key in both a sanitized root `.env.local`
+and `api/config.php`. The PHP config provides a fallback for cPanel extractors
+that skip hidden files; `.htaccess` blocks direct web access to both files.
+Private alert settings, Composer dependencies, and database credentials are
+not packaged. This app still uses Supabase, not the separate MySQL reference
+schema. After upgrading from a server-session build, sign in once to establish
+the new API cookies. Run `/api/health.php` and complete the SQL Editor setup
+above.
 
-To develop the frontend locally, run `npm run dev`. The PHP API must also be
-available under the same origin for login and dashboard workflows. Set
-`NEXT_PUBLIC_CURRENCY` before building if amounts should display in a currency
-other than USD.
+## Access controls
 
-## Runtime and data protection
-
-- PHP sessions use HttpOnly, SameSite cookies; POST requests require a
-  same-origin check and a session-bound CSRF token.
-- Passwords use PHP's `password_hash`/`password_verify`. Login attempts are
-  rate-limited per email and source IP.
-- All database access uses PDO prepared statements and role checks. Managers
-  can only read and update batches belonging to their assigned supplier.
-- Dashboard API requests have a 15-second deadline and surface a timeout or
-  backend error instead of leaving the dashboard in an endless loading state.
-- MySQL generated columns calculate deployed capital, revenue, and net credit.
-  The browser never supplies those totals.
-- Status changes are written to `offtake_status_audit`; completed allocations
-  cannot be reopened through the API.
-- The service worker caches the app shell and static GET assets only. It never
-  caches API responses or session data.
-- Manager and administrator sign-in are routed independently. The dedicated
-  administrator sign-in rejects manager accounts instead of redirecting them
-  to the company dashboard.
-- The install prompt supports the browser install flow and provides home-screen
-  instructions for browsers, including Safari on iOS.
-
-Public registration creates manager-role accounts. Set up the first admin
-using the SQL bootstrap above; there is no public admin registration route.
-
-The header includes an **Install app** button for the PWA. Browsers that support
-installation open the native install prompt; other browsers show instructions
-for adding the portal to the home screen.
-
-Check PHP, database connectivity, and every required table/column at
-`https://your-subdomain.example/api/health.php`. It reports actionable setup
-errors without exposing database credentials, along with whether Telegram is
-configured.
+- The shared header offers a light/dark theme toggle on public pages and
+  manager/admin account views. The browser remembers the choice and syncs it
+  across open portal tabs.
+- Supabase Auth owns passwords, sessions, confirmation, and sign-in throttling.
+  The PHP API stores access and refresh tokens in Secure, HttpOnly, SameSite
+  cookies scoped to `/api/`; a separate HttpOnly CSRF cookie is checked with
+  same-origin validation. Login does not depend on PHP session persistence.
+- Manager profiles and a separate supplier workspace are created by a trusted
+  Auth trigger. The submitted company name is display data only; the supplier
+  ID and manager link are generated server-side. Manager and admin roles are
+  derived from protected profile rows, never from client metadata. Admin
+  profiles can only be added by a trusted SQL Editor operator.
+- RLS scopes manager data to explicitly assigned supplier memberships. Admins
+  manage those memberships, and managers can switch only among their assigned
+  workspaces. Batch ownership and lifecycle transitions are validated in
+  PostgreSQL.
+- Managers can create inventory batches and edit their details only before
+  funding. The lifecycle is `pending` → `paid` → `in_transit` → `completed`.
+  The manager dashboard keeps batch entry collapsed until **Add Product** is
+  selected and   remembers the last values per manager and workspace in that browser; all
+  fields remain editable. Its totals show deployed capital and completed sales
+  revenue across the workspace, active batches, and the current weekly investor
+  payout.
+  A transition to in-transit attempts both a Telegram Bot API alert and an
+  email alert; the UI reports if either delivery fails.
+- The signed-in account menu provides account details and password changes
+  after verifying the current password. Administrators can jump from the menu
+  to the manager user-management section.
+- Inventory purchase amount is the total batch capital, wholesale supply price
+  is per unit, and sales discount is a percentage of gross sales. Supabase
+  computes discounted revenue, gross profit, a configurable manager allowance
+  (15% by default, applied only to positive gross profit), and the net payout
+  due to the purchasing company. Completed batches feed the weekly payout
+  ledger. Legacy allocation records keep their prior accounting model.
+- Weekly payouts are recorded through an admin-only transaction-safe RPC;
+  clients cannot submit the payout amount directly.
+- The publishable/anon key is public by design. Never put a Supabase
+  service-role key in the browser, PHP config, environment file, or ZIP.
+- The previous local ORM/CLI schema installer, custom PHP password tables,
+  MySQL runtime, and Telegram queue are not used by this Supabase Auth + RLS
+  deployment.

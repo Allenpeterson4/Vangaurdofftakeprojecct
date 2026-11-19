@@ -1,236 +1,444 @@
 <?php
 declare(strict_types=1);
 
-const OFFTAKE_SESSION_LIFETIME = 28800;
-date_default_timezone_set('UTC');
-
-function send_json_response(array $payload, int $status = 200): never
+final class SupabaseApiException extends RuntimeException
 {
-    http_response_code($status);
-    header('Content-Type: application/json; charset=utf-8');
-    header('Cache-Control: no-store, private, max-age=0');
-    header('X-Content-Type-Options: nosniff');
-    header('Referrer-Policy: same-origin');
-    echo json_encode($payload, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
-    exit;
-}
-
-function mysql_connection(): PDO
-{
-    static $connection = null;
-    if ($connection instanceof PDO) return $connection;
-
-    $config = portal_config();
-    foreach (['db_host', 'db_port', 'db_name', 'db_user', 'db_password'] as $key) {
-        if (!isset($config[$key]) || !is_string($config[$key]) || trim($config[$key]) === ''
-            || str_starts_with($config[$key], 'replace_with_') || str_starts_with($config[$key], 'cpanel_')) {
-            throw new RuntimeException('Edit api/config.php with the cPanel database settings before using the API.');
-        }
+    public function __construct(
+        string $message,
+        public readonly int $status,
+        public readonly ?string $apiCode = null
+    ) {
+        parent::__construct($message);
     }
-    if (!extension_loaded('pdo_mysql') || !in_array('mysql', PDO::getAvailableDrivers(), true)) {
-        throw new RuntimeException('The PHP pdo_mysql extension is not enabled for this cPanel account.');
-    }
-    if (!ctype_digit($config['db_port']) || (int)$config['db_port'] < 1 || (int)$config['db_port'] > 65535) {
-        throw new RuntimeException('The configured database port is invalid.');
-    }
-
-    $dsn = sprintf(
-        'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
-        $config['db_host'],
-        (int)$config['db_port'],
-        $config['db_name'],
-    );
-    $connection = new PDO($dsn, $config['db_user'], $config['db_password'], [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-        PDO::ATTR_TIMEOUT => 8,
-        PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '+00:00'",
-    ]);
-    return $connection;
 }
 
 function portal_config(): array
 {
-    $configFile = __DIR__ . '/config.php';
-    $isExampleConfig = false;
-    if (!is_file($configFile)) {
-        $configFile = __DIR__ . '/config.example.php';
-        $isExampleConfig = true;
+    static $config = null;
+    if ($config !== null) {
+        return $config;
     }
-    if (!is_file($configFile)) {
-        throw new RuntimeException('Database setup is incomplete: upload api/config.example.php, rename it to api/config.php, and enter the cPanel database settings.');
-    }
-    $config = require $configFile;
-    if (!is_array($config)) throw new RuntimeException('The api/config.php file must return a configuration array.');
-    foreach (['db_host', 'db_port', 'db_name', 'db_user', 'db_password'] as $key) {
-        if (!isset($config[$key]) || !is_string($config[$key]) || trim($config[$key]) === ''
-            || str_starts_with($config[$key], 'replace_with_') || str_starts_with($config[$key], 'cpanel_')) {
-            $configPath = $isExampleConfig ? 'api/config.example.php' : 'api/config.php';
-            throw new RuntimeException("Database setup is incomplete: enter your cPanel database host, port, name, username, and password in {$configPath}.");
+
+    $config = [
+        'supabase_url' => '',
+        'supabase_anon_key' => '',
+        'app_origin' => '',
+        'admin_alert_email' => '',
+        'alert_from_email' => '',
+        'telegram_bot_token' => '',
+        'telegram_chat_id' => '',
+    ];
+    $configPath = __DIR__ . '/config.php';
+    if (is_file($configPath)) {
+        $local = require $configPath;
+        if (is_array($local)) {
+            $config = array_merge($config, $local);
         }
     }
+
+    $envPath = dirname(__DIR__) . '/.env.local';
+    if (is_file($envPath) && is_readable($envPath)) {
+        foreach (file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) {
+                continue;
+            }
+            [$name, $value] = explode('=', $line, 2);
+            $name = trim($name);
+            $value = trim(trim($value), "\"'");
+            $envMap = [
+                'NEXT_PUBLIC_SUPABASE_URL' => 'supabase_url',
+                'SUPABASE_URL' => 'supabase_url',
+                'NEXT_PUBLIC_SUPABASE_ANON_KEY' => 'supabase_anon_key',
+                'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY' => 'supabase_anon_key',
+                'SUPABASE_ANON_KEY' => 'supabase_anon_key',
+                'APP_ORIGIN' => 'app_origin',
+                'ADMIN_ALERT_EMAIL' => 'admin_alert_email',
+                'ALERT_FROM_EMAIL' => 'alert_from_email',
+                'TELEGRAM_BOT_TOKEN' => 'telegram_bot_token',
+                'TELEGRAM_CHAT_ID' => 'telegram_chat_id',
+            ];
+            if (isset($envMap[$name])) {
+                $config[$envMap[$name]] = $value;
+            }
+        }
+    }
+
+    $processEnvMap = [
+        'supabase_url' => ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL'],
+        'supabase_anon_key' => ['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY', 'SUPABASE_ANON_KEY'],
+        'app_origin' => ['APP_ORIGIN'],
+        'admin_alert_email' => ['ADMIN_ALERT_EMAIL'],
+        'alert_from_email' => ['ALERT_FROM_EMAIL'],
+        'telegram_bot_token' => ['TELEGRAM_BOT_TOKEN'],
+        'telegram_chat_id' => ['TELEGRAM_CHAT_ID'],
+    ];
+    foreach ($processEnvMap as $key => $names) {
+        foreach ($names as $name) {
+            $value = getenv($name);
+            if ($value !== false && $value !== '') {
+                $config[$key] = $value;
+                break;
+            }
+        }
+    }
+
     return $config;
 }
 
-function start_app_session(): void
+function supabase_config(): array
 {
-    if (session_status() === PHP_SESSION_ACTIVE) return;
     $config = portal_config();
-    $lifetime = is_int($config['session_lifetime'] ?? null)
-        ? max(1800, min($config['session_lifetime'], 86400))
-        : OFFTAKE_SESSION_LIFETIME;
-    $isHttps = isset($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off';
-    ini_set('session.use_strict_mode', '1');
-    ini_set('session.use_only_cookies', '1');
-    ini_set('session.gc_maxlifetime', (string)$lifetime);
-    session_name('OFFTAKESESSID');
-    session_set_cookie_params([
-        'lifetime' => $lifetime,
-        'path' => '/',
-        'secure' => $isHttps,
-        'httponly' => true,
-        'samesite' => 'Strict',
-    ]);
-    if (!session_start()) throw new RuntimeException('Unable to start a secure portal session.');
-}
-
-function request_json(): array
-{
-    $contentLength = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
-    if ($contentLength > 32768) send_json_response(['error' => 'Request payload is too large.'], 413);
-    $raw = file_get_contents('php://input');
-    if (is_string($raw) && strlen($raw) > 32768) send_json_response(['error' => 'Request payload is too large.'], 413);
-    try {
-        $payload = json_decode(is_string($raw) ? $raw : '', true, 32, JSON_THROW_ON_ERROR);
-    } catch (JsonException) {
-        send_json_response(['error' => 'Request payload must be valid JSON.'], 400);
+    $url = rtrim(trim((string) ($config['supabase_url'] ?? '')), '/');
+    $key = trim((string) ($config['supabase_anon_key'] ?? ''));
+    if ($url === '' || $key === '') {
+        throw new RuntimeException('Supabase URL and publishable/anon key are required.');
     }
-    if (!is_array($payload)) send_json_response(['error' => 'Request payload must be a JSON object.'], 400);
-    return $payload;
+    if (!filter_var($url, FILTER_VALIDATE_URL) || !str_starts_with($url, 'https://')) {
+        throw new RuntimeException('Supabase URL must be a valid HTTPS URL.');
+    }
+    if (!function_exists('curl_init')) {
+        throw new RuntimeException('The PHP cURL extension is required for Supabase requests.');
+    }
+    return ['url' => $url, 'key' => $key];
 }
 
-function require_same_origin_request(): void
+function supabase_request(
+    string $path,
+    string $method = 'GET',
+    ?array $payload = null,
+    ?string $accessToken = null,
+    ?string $prefer = null
+): array {
+    $config = supabase_config();
+    $url = $config['url'] . '/' . ltrim($path, '/');
+    $headers = [
+        'apikey: ' . $config['key'],
+        'Authorization: Bearer ' . ($accessToken ?: $config['key']),
+        'Accept: application/json',
+    ];
+    if ($payload !== null) {
+        $headers[] = 'Content-Type: application/json';
+    }
+    if ($prefer !== null) {
+        $headers[] = 'Prefer: ' . $prefer;
+    }
+
+    $handle = curl_init($url);
+    curl_setopt_array($handle, [
+        CURLOPT_CUSTOMREQUEST => strtoupper($method),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+    ]);
+    if ($payload !== null) {
+        $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES);
+        if ($encoded === false) {
+            curl_close($handle);
+            throw new RuntimeException('Could not encode the Supabase request.');
+        }
+        curl_setopt($handle, CURLOPT_POSTFIELDS, $encoded);
+    }
+
+    $body = curl_exec($handle);
+    $curlError = curl_error($handle);
+    $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+    curl_close($handle);
+    if ($body === false) {
+        error_log('Supabase request transport error: ' . $curlError);
+        throw new RuntimeException('Could not reach Supabase. Please try again.');
+    }
+
+    $decoded = $body === '' ? [] : json_decode($body, true);
+    if ($status < 200 || $status >= 300) {
+        $message = is_array($decoded)
+            ? (string) ($decoded['message'] ?? $decoded['msg'] ?? $decoded['error_description'] ?? $decoded['error'] ?? 'Supabase request failed.')
+            : 'Supabase request failed.';
+        $apiCode = is_array($decoded) ? (string) ($decoded['code'] ?? '') : '';
+        error_log(sprintf('Supabase API error (%d, %s): %s', $status, $apiCode, $message));
+        throw new SupabaseApiException($message, $status, $apiCode !== '' ? $apiCode : null);
+    }
+    if ($body !== '' && !is_array($decoded)) {
+        throw new RuntimeException('Supabase returned an invalid response.');
+    }
+    return is_array($decoded) ? $decoded : [];
+}
+
+function supabase_auth_request(string $path, string $method = 'POST', ?array $payload = null, ?string $accessToken = null): array
+{
+    return supabase_request('auth/v1/' . ltrim($path, '/'), $method, $payload, $accessToken);
+}
+
+function supabase_rest_request(string $path, string $method = 'GET', ?array $payload = null, ?string $accessToken = null, ?string $prefer = null): array
+{
+    return supabase_request('rest/v1/' . ltrim($path, '/'), $method, $payload, $accessToken, $prefer);
+}
+
+function portal_cookie_options(int $expires, bool $httpOnly = true, string $path = '/api/'): array
+{
+    $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https'
+        || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
+    return [
+        'expires' => $expires,
+        'path' => $path,
+        'secure' => $secure,
+        'httponly' => $httpOnly,
+        'samesite' => 'Lax',
+    ];
+}
+
+function portal_set_cookie(string $name, string $value, int $expires = 0, bool $httpOnly = true, string $path = '/api/'): void
+{
+    if (!setcookie($name, $value, portal_cookie_options($expires, $httpOnly, $path))) {
+        throw new RuntimeException('Could not set a secure portal cookie.');
+    }
+    $_COOKIE[$name] = $value;
+}
+
+function portal_clear_cookie(string $name, string $path = '/api/'): void
+{
+    if (!setcookie($name, '', portal_cookie_options(time() - 3600, true, $path))) {
+        throw new RuntimeException('Could not clear a portal cookie.');
+    }
+    unset($_COOKIE[$name]);
+}
+
+function portal_active_supplier_id(): ?string
+{
+    $supplierId = (string) ($_COOKIE['VVDPortalWorkspace'] ?? '');
+    return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $supplierId) === 1
+        ? $supplierId
+        : null;
+}
+
+function destroy_app_session(): void
+{
+    foreach (['VVDPortalAccessToken', 'VVDPortalRefreshToken', 'VVDPortalAccessExpiresAt', 'VVDPortalCSRF', 'VVDPortalWorkspace'] as $name) {
+        portal_clear_cookie($name);
+    }
+    portal_clear_cookie('VVDPortalSession', '/');
+}
+
+function json_response(array $payload, int $status = 200): never
+{
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function supabase_store_session(array $authResponse, bool $resetWorkspace = false): void
+{
+    $accessToken = (string) ($authResponse['access_token'] ?? '');
+    $refreshToken = (string) ($authResponse['refresh_token'] ?? '');
+    if ($accessToken === '' || $refreshToken === '') {
+        throw new RuntimeException('Supabase did not return a usable login session.');
+    }
+    $expiresAt = time() + max(60, (int) ($authResponse['expires_in'] ?? 3600));
+    portal_set_cookie('VVDPortalAccessToken', $accessToken, $expiresAt);
+    portal_set_cookie('VVDPortalRefreshToken', $refreshToken);
+    portal_set_cookie('VVDPortalAccessExpiresAt', (string) $expiresAt, $expiresAt);
+    if ($resetWorkspace) {
+        portal_set_cookie('VVDPortalCSRF', bin2hex(random_bytes(32)));
+        portal_clear_cookie('VVDPortalWorkspace');
+        portal_clear_cookie('VVDPortalSession', '/');
+    }
+}
+
+function supabase_access_token(): ?string
+{
+    $accessToken = (string) ($_COOKIE['VVDPortalAccessToken'] ?? '');
+    $refreshToken = (string) ($_COOKIE['VVDPortalRefreshToken'] ?? '');
+    $expiresAt = (int) ($_COOKIE['VVDPortalAccessExpiresAt'] ?? 0);
+
+    if ($accessToken !== '' && $expiresAt > time() + 60) {
+        return $accessToken;
+    }
+    if ($refreshToken === '') {
+        if ($accessToken !== '') {
+            destroy_app_session();
+        }
+        return null;
+    }
+    try {
+        $refreshed = supabase_auth_request('token?grant_type=refresh_token', 'POST', ['refresh_token' => $refreshToken]);
+        supabase_store_session($refreshed);
+        return (string) ($_COOKIE['VVDPortalAccessToken'] ?? '');
+    } catch (SupabaseApiException $error) {
+        if ($error->status === 400 || $error->status === 401) {
+            destroy_app_session();
+            return null;
+        }
+        throw $error;
+    }
+}
+
+function supabase_profile(string $table, string $id, string $accessToken): ?array
+{
+    $select = $table === 'offtake_v2_managers'
+        ? 'id,full_name,email,is_active,supplier_id'
+        : 'id,full_name,email,is_active';
+    $query = $table . '?select=' . $select . '&id=eq.' . rawurlencode($id) . '&limit=1';
+    $rows = supabase_rest_request($query, 'GET', null, $accessToken);
+    return isset($rows[0]) && is_array($rows[0]) ? $rows[0] : null;
+}
+
+function current_portal_user(): ?array
+{
+    $accessToken = supabase_access_token();
+    if ($accessToken === null) {
+        return null;
+    }
+    try {
+        $authUser = supabase_auth_request('user', 'GET', null, $accessToken);
+        $id = (string) ($authUser['id'] ?? '');
+        if ($id === '') {
+            destroy_app_session();
+            return null;
+        }
+        $admin = supabase_profile('offtake_v2_admins', $id, $accessToken);
+        if ($admin !== null && ($admin['is_active'] ?? false)) {
+            return [
+                'id' => $id,
+                'email' => (string) ($authUser['email'] ?? $admin['email'] ?? ''),
+                'full_name' => (string) ($admin['full_name'] ?? ''),
+                'role' => 'admin',
+                'supplier_id' => null,
+                'is_active' => true,
+            ];
+        }
+        $manager = supabase_profile('offtake_v2_managers', $id, $accessToken);
+        if ($manager !== null && ($manager['is_active'] ?? false)) {
+            return [
+                'id' => $id,
+                'email' => (string) ($authUser['email'] ?? $manager['email'] ?? ''),
+                'full_name' => (string) ($manager['full_name'] ?? ''),
+                'supplier_id' => $manager['supplier_id'] ?? null,
+                'active_supplier_id' => portal_active_supplier_id(),
+                'role' => 'manager',
+                'is_active' => true,
+            ];
+        }
+        destroy_app_session();
+        return null;
+    } catch (SupabaseApiException $error) {
+        if ($error->status === 401 || $error->status === 403) {
+            destroy_app_session();
+            return null;
+        }
+        throw $error;
+    }
+}
+
+function require_authenticated_user(): array
+{
+    $user = current_portal_user();
+    if ($user === null) {
+        json_response(['error' => 'Authentication required.'], 401);
+    }
+    return $user;
+}
+
+function require_user_role(array $roles): array
+{
+    $user = require_authenticated_user();
+    if (!in_array($user['role'] ?? '', $roles, true)) {
+        json_response(['error' => 'You are not authorized to perform this action.'], 403);
+    }
+    return $user;
+}
+
+function require_same_origin(): void
 {
     $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-    $originHost = is_string($origin) ? parse_url($origin, PHP_URL_HOST) : null;
-    $originScheme = is_string($origin) ? parse_url($origin, PHP_URL_SCHEME) : null;
-    $originPort = is_string($origin) ? parse_url($origin, PHP_URL_PORT) : null;
-    $requestHost = $_SERVER['HTTP_HOST'] ?? '';
-    $requestHostname = is_string($requestHost) ? parse_url('http://' . $requestHost, PHP_URL_HOST) : null;
-    $requestPort = is_string($requestHost) ? parse_url('http://' . $requestHost, PHP_URL_PORT) : null;
-    $requestScheme = isset($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off' ? 'https' : 'http';
-    $defaultPort = $requestScheme === 'https' ? 443 : 80;
-    if (!is_string($originHost) || !is_string($originScheme) || !in_array(strtolower($originScheme), ['http', 'https'], true)
-        || strtolower($originScheme) !== $requestScheme
-        || !is_string($requestHostname) || $originHost === ''
-        || !hash_equals(strtolower($requestHostname), strtolower($originHost))
-        || (int)($requestPort ?? $defaultPort) !== (int)($originPort ?? $defaultPort)) {
-        send_json_response(['error' => 'This request did not originate from the portal site.'], 403);
+    if ($origin === '') {
+        return;
     }
-}
-
-function csrf_token(): string
-{
-    start_app_session();
-    if (!isset($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token'])) {
-        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    $config = portal_config();
+    $trustedOrigin = trim((string) ($config['app_origin'] ?? ''));
+    if ($trustedOrigin !== '') {
+        $normalize = static function (string $value): string {
+            $parts = parse_url($value);
+            if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
+                return '';
+            }
+            $scheme = strtolower((string) $parts['scheme']);
+            $port = $parts['port'] ?? ($scheme === 'https' ? 443 : 80);
+            return $scheme . '://' . strtolower((string) $parts['host']) . ':' . $port;
+        };
+        if ($normalize($origin) === '' || $normalize($origin) !== $normalize($trustedOrigin)) {
+            json_response(['error' => 'Cross-origin requests are not allowed.'], 403);
+        }
+        return;
     }
-    return $_SESSION['csrf_token'];
+    $originParts = parse_url($origin);
+    $hostHeader = (string) ($_SERVER['HTTP_HOST'] ?? '');
+    $expectedParts = parse_url('//' . $hostHeader);
+    $expectedScheme = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO']
+        ?? ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http')));
+    $originScheme = is_array($originParts) ? strtolower((string) ($originParts['scheme'] ?? '')) : '';
+    $originHost = is_array($originParts) ? strtolower((string) ($originParts['host'] ?? '')) : '';
+    $expectedHost = is_array($expectedParts) ? strtolower((string) ($expectedParts['host'] ?? '')) : '';
+    $originPort = is_array($originParts) ? (int) ($originParts['port'] ?? ($originScheme === 'https' ? 443 : 80)) : 0;
+    $expectedPort = is_array($expectedParts) ? (int) ($expectedParts['port'] ?? ($expectedScheme === 'https' ? 443 : 80)) : 0;
+    if ($originScheme !== $expectedScheme || $expectedHost === '' || $originHost !== $expectedHost || $originPort !== $expectedPort) {
+        json_response(['error' => 'Cross-origin requests are not allowed.'], 403);
+    }
 }
 
 function require_csrf_token(): void
 {
-    $provided = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-    $expected = $_SESSION['csrf_token'] ?? '';
-    if (!is_string($provided) || !is_string($expected) || $provided === '' || !hash_equals($expected, $provided)) {
-        send_json_response(['error' => 'Your secure session expired. Refresh the page and try again.'], 419);
+    $provided = (string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_POST['csrf_token'] ?? '');
+    if (!portal_csrf_token_matches($provided)) {
+        json_response(['error' => 'Your session expired. Refresh the page and try again.'], 419);
     }
 }
 
-function current_portal_user(PDO $connection): ?array
+function portal_csrf_token_matches(string $provided): bool
 {
-    start_app_session();
-    $userId = $_SESSION['offtake_user_id'] ?? null;
-    if (!is_string($userId)) return null;
-    $statement = $connection->prepare(
-        'SELECT `id`, `email`, `full_name`, `role`, `supplier_id`
-         FROM `offtake_users` WHERE `id` = :id LIMIT 1'
-    );
-    $statement->execute(['id' => $userId]);
-    $user = $statement->fetch();
-    return is_array($user) ? $user : null;
+    $expected = (string) ($_COOKIE['VVDPortalCSRF'] ?? '');
+    return $provided !== ''
+        && preg_match('/^[a-f0-9]{64}$/', $expected) === 1
+        && hash_equals($expected, $provided);
 }
 
-function require_authenticated_user(PDO $connection): array
+function csrf_token(): string
 {
-    $user = current_portal_user($connection);
-    if (!is_array($user)) send_json_response(['error' => 'Sign in to continue.'], 401);
-    return $user;
-}
-
-function require_user_role(PDO $connection, array $roles): array
-{
-    $user = require_authenticated_user($connection);
-    if (!in_array($user['role'], $roles, true)) {
-        send_json_response(['error' => 'Your account does not have permission for this action.'], 403);
+    $token = (string) ($_COOKIE['VVDPortalCSRF'] ?? '');
+    if (preg_match('/^[a-f0-9]{64}$/', $token) !== 1) {
+        $token = bin2hex(random_bytes(32));
+        portal_set_cookie('VVDPortalCSRF', $token);
     }
-    return $user;
+    return $token;
 }
 
-function required_string(array $payload, string $key, int $maxLength, bool $required = true): string
+function handle_api_error(Throwable $error): never
 {
-    $value = $payload[$key] ?? '';
-    if (!is_string($value)) send_json_response(['error' => 'A text field is invalid.'], 422);
-    $value = trim($value);
-    if (($required && $value === '') || (function_exists('mb_strlen') ? mb_strlen($value) : strlen($value)) > $maxLength) {
-        send_json_response(['error' => 'A required text field is missing or too long.'], 422);
+    if ($error instanceof SupabaseApiException) {
+        $status = match (true) {
+            in_array($error->apiCode, ['PGRST204', 'PGRST205'], true) => 503,
+            $error->status === 401 => 401,
+            $error->status === 403 || $error->apiCode === '42501' => 403,
+            in_array($error->apiCode, ['P0001', 'P0002', '23503'], true) => 409,
+            $error->apiCode === '22023' => 422,
+            default => 502,
+        };
+        $message = in_array($error->apiCode, ['PGRST204', 'PGRST205'], true)
+            ? 'The Supabase schema or inventory migration is missing. Run the PostgreSQL schema and latest migration in the Supabase SQL Editor.'
+            : match ($status) {
+                401 => 'Your session has expired. Please sign in again.',
+                403 => 'This account is not permitted to perform that action.',
+                409 => 'The requested change conflicts with the current database state.',
+                422 => 'The submitted value is not valid.',
+                default => 'The Supabase request could not be completed.',
+            };
+        json_response(['error' => $message], $status);
     }
-    return $value;
-}
-
-function valid_uuid(string $value): bool
-{
-    return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $value) === 1;
-}
-
-function uuid_v4(): string
-{
-    $bytes = random_bytes(16);
-    $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
-    $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
-    $hex = bin2hex($bytes);
-    return sprintf('%s-%s-%s-%s-%s', substr($hex, 0, 8), substr($hex, 8, 4), substr($hex, 12, 4), substr($hex, 16, 4), substr($hex, 20));
-}
-
-function handle_api_error(Throwable $error, string $endpoint): never
-{
-    error_log($endpoint . ' failure: ' . $error->getMessage());
-    send_json_response(['error' => portal_safe_error_message($error)], 500);
-}
-
-function portal_safe_error_message(Throwable $error): string
-{
-    if ($error instanceof PDOException) {
-        $driverCode = isset($error->errorInfo[1]) ? (int)$error->errorInfo[1] : null;
-        if ($driverCode === 1146 || $driverCode === 1054) {
-            return 'The offtake database is missing required tables or columns. Import the complete database/offtake-portal.sql file in phpMyAdmin.';
-        }
-        if (in_array($driverCode, [1044, 1045], true)) {
-            return 'The database rejected the configured username or password, or the user lacks privileges. Check api/config.php and the database user privileges in cPanel.';
-        }
-        if ($driverCode === 1049) {
-            return 'The configured database name does not exist. Check the exact cPanel database name in api/config.php.';
-        }
-        if (in_array($driverCode, [2002, 2003, 2005], true)) {
-            return 'PHP could not connect to the configured database host. Check the database host and port in api/config.php.';
-        }
-    }
-    if (str_contains($error->getMessage(), 'pdo_mysql')) {
-        return 'The PHP pdo_mysql extension is disabled. Enable it in cPanel PHP Selector or ask your hosting provider.';
-    }
-    if ($error instanceof RuntimeException && str_starts_with($error->getMessage(), 'Database setup is incomplete:')) {
-        return $error->getMessage();
-    }
-    return 'The portal backend is unavailable. Open /api/health.php for a safe setup check, then check the cPanel PHP error log if the database setup is correct.';
+    error_log('Portal API error: ' . $error->getMessage());
+    json_response(['error' => $error->getMessage()], 500);
 }
